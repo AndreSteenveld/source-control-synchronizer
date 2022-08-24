@@ -23,7 +23,7 @@ scs_initialize__svn_repository() {
 
 }
 
-scs_initialize__generate_authors() {
+scs_initialize__generate_authors_from_svn() {
 
 	local svn_path="$1" ; shift 1
 	local authors_file="$2" ; shift 1
@@ -47,9 +47,15 @@ scs_initialize__generate_authors() {
 		| awk -F"|" '{ print $2 }'                     \
 		| sort | uniq                                  \
 		| sed -E -e 's/(no author)/no-author/'         \
-		| sed -E "${sed_expressions}"                  \
+		| sed -E "${sed_expressions[@]}"               \
 		| uniq                                         \
 		> "${authors_file}"
+
+}
+
+scs_initialize__generate_authors_from_git() {
+
+	exit 1
 
 }
 
@@ -68,11 +74,31 @@ scs_initialize__git_repository() {
 
 }
 
-scs_initialize__synchronization() {
+scs_initialize__svn_to_git() {
+
+	git init --bare "${git_path}"                          \
+		&& git svn init "file://${svn_path}" "${git_path}" \
+			--stdlayout                                    \
+			--use-svnsync-props                            \
+			--authors-file="${SCS_AUTHORS}"                \
+			--prefix "svn"                                 \
+		&& git svn fetch
+
+}
+
+scs_initialize__git_to_svn() {
 
 	#
-	# Do the sanity checks otherwise sync it in some direction
+	# With our populated git repo do an initial git svn dcommit of everything
 	#
+
+	exit 1
+
+}
+
+scs_initialize__start_webhooks() {
+
+	exit 1
 
 }
 
@@ -91,7 +117,6 @@ scs_initialize__help() {
 		'  action is neccesary after initalization.                                      ' \
 		'                                                                                ' \
 		'Options:                                                                        ' \
-		'  --generate-authors-file <sed expressions>                                     ' \
 		'  --svn-repository <uri>                                                        ' \
 		'  --git-repository <uri>                                                        ' \
 		'                                                                                ' 
@@ -108,9 +133,6 @@ scs_initialize__main() {
 	local git_path='/var/git'
 
 	local svn_uri git_uri initalization_direction
-
-	local generate_authors=false
-
 	case "$1" in
 		"git-to-svn") initalization_direction="$1" ; shift 1 ;;
 		"svn-to-git") initalization_direction="$1" ; shift 1 ;;
@@ -121,7 +143,6 @@ scs_initialize__main() {
 		case "$1" in
 			--svn-repository) svn_uri="$2" ; shift 2 ;;
 			--git-repository) git_uri="$2" ; shift 2 ;;
-			--generate-authors-file) generate_authors=true ; shift 1 ;;
 			"-?" | --help) scs_initialize__help ; exit ;;
 			*) {
 				printf "[ initialize ] Unknown option [ %s ]" "$1" >&2
@@ -135,21 +156,39 @@ scs_initialize__main() {
 	elif [[ -z "${git_uri}" ]] ; then printf "[ initialize ] No remote GIT uri was provided." >&2 ; exit 1
 	fi
 
-	export SCS_AUTHROS="/var/AUTHORS"
+	export SCS_AUTHORS="/var/AUTHORS"
 	export SCS_SVN_URI="${svn_uri}"
 	export SCS_GIT_URI="${git_uri}"
 
 	scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
 
-	if [[ "${generate_authors}" = true ]] ; then
+	if   [[ "${initalization_direction}" = "svn-to-git" ]] ; then 
+		
+		scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
+		scs_initialize__generate_authors_from_svn "${svn_path}" "${SCS_AUTHORS}"
+		scs_initialize__svn_to_git 
+		
+		exit
 
-		scs_initialize__generate_authors "${svn_path}" "${SCS_AUTHORS}"
+	elif [[ "${initalization_direction}" = "git-to-svn" ]] ; then 
+
+		scs_initialize__git_repository "${git_path}" "${git_uri}"
+		scs_initialize__generate_authors_from_git
+		scs_initialize__git_to_svn
+
+		exit
+
+	elif [[ -z "${initalization_direction}" ]] ; then
+	
+		scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
+		scs_initialize__git_repository "${git_path}" "${git_uri}"
+		scs_initialize__start_webhooks
+
+		exit
 
 	fi
 
-	scs_initialize__git_repository "${git_path}" "${git_uri}"
-
-	#scs_initialize__synchronization "${svn_path}" "${svn_uri}" "${git_path}" "${git_uri}"
+	exit 1
 
 }
 
