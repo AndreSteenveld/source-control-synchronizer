@@ -1,0 +1,15 @@
+- id: git-to-svn
+  command-working-directory: /
+  execute-command: /usr/local/bin/git-to-svn
+  pass-arguments-to-command:
+    - { source : "string" , name : "/var/git" }
+    - { source : "string" , name : "/var/svn" }
+
+- id: svn-to-git
+  command-working-directory: /
+  execute-command: /usr/local/bin/svn-to-git
+  pass-arguments-to-command:
+    - { source : "string" , name : "/var/svn" }
+    - { source : "string" , name : "/var/git" }
+
+

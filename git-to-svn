@@ -1,0 +1,49 @@
+#! /usr/bin/env bash
+
+scs_git_to_svn__pull_changes() {
+
+	git pull origin
+
+}
+
+scs_git_to_svn__push_changes_to_remote_svn() {
+
+	local git_path="$1"
+
+	git -C "${git_path}" svn dcommit --rmdir
+
+}
+
+scs_git_to_svn__main() {
+
+	set -e
+	set -o pipefail
+	set -o errtrace
+
+	local svn_path='/var/svn';
+	local git_path='/var/git';
+
+	local svn_uri git_uri
+
+	while [[ $# != 0 ]]; do
+
+		case "$1" in
+			--svn-repository) svn_uri="$2" ; shift 2 ;;
+			--git-repository) git_uri="$2" ; shift 2 ;;
+			"-?" | --help) scs_initialize__help ; exit ;;
+			*) {
+				printf "[ initialize ] Unknown option [ %s ]" "$1" >&2
+				exit 1
+			}
+		esac
+
+	done
+
+	if   [[ -z "${svn_uri}" ]] ; then printf "[ initialize ] No remote SVN uri was provided." >&2 ; exit 1
+	elif [[ -z "${git_uri}" ]] ; then printf "[ initialize ] No remote GIT uri was provided." >&2 ; exit 1
+	fi
+
+	
+}
+
+(return 0 2>/dev/null) || scs_git_to_svn__main "$@"

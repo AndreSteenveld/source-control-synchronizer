@@ -1,0 +1,64 @@
+#! /usr/bin/env bash
+
+scs_svn_to_git__synchronize_svn_repository() {
+
+	local svn_path="$1"
+	local svn_uri="$2"
+
+	
+
+	# svnsync synchronise "file://${svn_path}" "${svn_uri}" 
+
+}
+
+scs_svn_to_git__pull_changes_from_svn_repositroy() {
+
+	git svn rebase
+
+}
+
+scs_svn_to_git__push_git_changes_to_origin() {
+
+	git push origin
+
+}
+
+scs_svn_to_git__main() {
+
+	set -e
+	set -o pipefail
+	set -o errtrace
+
+	local svn_path='/var/svn';
+	local git_path='/var/git';
+
+	local svn_uri git_uri
+
+	while [[ $# != 0 ]]; do
+
+		case "$1" in
+			--svn-repository) svn_uri="$2" ; shift 2 ;;
+			--git-repository) git_uri="$2" ; shift 2 ;;
+			"-?" | --help) scs_initialize__help ; exit ;;
+			*) {
+				printf "[ initialize ] Unknown option [ %s ]" "$1" >&2
+				exit 1
+			}
+		esac
+
+	done
+
+	if   [[ -z "${svn_uri}" ]] ; then printf "[ initialize ] No remote SVN uri was provided." >&2 ; exit 1
+	elif [[ -z "${git_uri}" ]] ; then printf "[ initialize ] No remote GIT uri was provided." >&2 ; exit 1
+	fi
+
+	scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
+	scs_initialize__git_repository "${git_path}" "${git_uri}"
+
+	scs_initialize__synchronization "${svn_path}" "${svn_uri}" "${git_path}" "${git_uri}"
+
+	scs_initialize__start_webhooks "${svn_path}" "${svn_uri}"
+
+}
+
+(return 0 2>/dev/null) || scs_svn_to_git__main "$@"

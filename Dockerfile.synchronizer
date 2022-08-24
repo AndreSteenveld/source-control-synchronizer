@@ -1,0 +1,8 @@
+FROM alpine:latest
+
+COPY ./git-to-svn ./svn-to-git ./scs-initialize /usr/local/bin
+COPY ./hooks.yaml /var
+
+RUN apk add --no-cache tini webhook subversion git
+
+ENTRYPOINT [ "/tini", "--", "bash", "-c", "'/usr/local/bin/scs-initialize \"$@\" && /sbin/webhook -verbose -hooks /var/hooks.yaml'" "bash" ]

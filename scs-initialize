@@ -1,0 +1,156 @@
+#! /usr/bin/env bash
+
+scs_initialize__svn_repository() {
+
+	local svn_path="$1"
+	local svn_uri="$2"
+
+	# 
+	# Initialize SVN repo if it doesn't exist
+	#
+	if [[ ! -d "${svn_path}" ]] ; then
+	
+		svnadmin create "file://${svn_path}" \
+			&& svnrdump dump "${svn_uri}" | svnadmin load "file://${svn_path}"
+
+	fi
+
+	#
+	# Synchronize SVN repo with remote
+	#
+	svnsync initialize "file://${svn_path}" "${svn_path}" --allow-non-empty \
+		&& svnsync synchronize "file://${svn_path}" "${svn_uri}"
+
+}
+
+scs_initialize__generate_authors() {
+
+	local svn_path="$1" ; shift 1
+	local authors_file="$2" ; shift 1
+
+	local sed_expressions=()
+
+	while [[ "$#" != 0 ]]; do
+
+		sed_expressions+=('-e' "$0")
+
+	done
+
+	#
+	# Because this is running in a alpine container we're need to take in account that, to save them precious bytes, we only
+	# have the shorthand options on the standard commands.
+	#
+	# awk (-F|--field-separator)
+	# sed (-r|--regex-extended) (-e|--expression)
+	#
+	svn log --quiet --incremental "file://${svn_path}" \
+		| awk -F"|" '{ print $2 }'                     \
+		| sort | uniq                                  \
+		| sed -E -e 's/(no author)/no-author/'         \
+		| sed -E "${sed_expressions}"                  \
+		| uniq                                         \
+		> "${authors_file}"
+
+}
+
+scs_initialize__git_repository() {
+
+	local git_path="$1"
+	local git_uri="$2"
+
+	if [[ ! -d "${git_path}" ]] ; then
+
+		git clone --bare "${git_uri}" "${git_path}"
+		
+	fi
+
+	git -C "${git_path}" pull origin
+
+}
+
+scs_initialize__synchronization() {
+
+	#
+	# Do the sanity checks otherwise sync it in some direction
+	#
+
+}
+
+scs_initialize__help() {
+
+	printf '%b\n' \
+		'scs-initialize - Initilization and start-up script for a docker container with  ' \
+		'                 the goal of synchronizing a SVN and GIT repository             ' \
+		'                                                                                ' \
+		'Usage:                                                                          ' \
+		'  scs-initialize [direction] [options]                                          ' \
+		'                                                                                ' \
+		'Direction: <svn-to-git|git-to-svn>                                              ' \
+		'  Definese the direction of the synchronization after initalization, if no      ' \
+		'  direction is provided it is assumed that the repositories are in sync and no  ' \
+		'  action is neccesary after initalization.                                      ' \
+		'                                                                                ' \
+		'Options:                                                                        ' \
+		'  --generate-authors-file <sed expressions>                                     ' \
+		'  --svn-repository <uri>                                                        ' \
+		'  --git-repository <uri>                                                        ' \
+		'                                                                                ' 
+
+}
+
+scs_initialize__main() {
+
+	set -e
+	set -o pipefail
+	set -o errtrace
+
+	local svn_path='/var/svn'
+	local git_path='/var/git'
+
+	local svn_uri git_uri initalization_direction
+
+	local generate_authors=false
+
+	case "$1" in
+		"git-to-svn") initalization_direction="$1" ; shift 1 ;;
+		"svn-to-git") initalization_direction="$1" ; shift 1 ;;
+	esac
+
+	while [[ $# != 0 ]]; do
+
+		case "$1" in
+			--svn-repository) svn_uri="$2" ; shift 2 ;;
+			--git-repository) git_uri="$2" ; shift 2 ;;
+			--generate-authors-file) generate_authors=true ; shift 1 ;;
+			"-?" | --help) scs_initialize__help ; exit ;;
+			*) {
+				printf "[ initialize ] Unknown option [ %s ]" "$1" >&2
+				exit 1
+			}
+		esac
+
+	done
+
+	if   [[ -z "${svn_uri}" ]] ; then printf "[ initialize ] No remote SVN uri was provided." >&2 ; exit 1
+	elif [[ -z "${git_uri}" ]] ; then printf "[ initialize ] No remote GIT uri was provided." >&2 ; exit 1
+	fi
+
+	export SCS_AUTHROS="/var/AUTHORS"
+	export SCS_SVN_URI="${svn_uri}"
+	export SCS_GIT_URI="${git_uri}"
+
+	scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
+
+	if [[ "${generate_authors}" = true ]] ; then
+
+		scs_initialize__generate_authors "${svn_path}" "${SCS_AUTHORS}"
+
+	fi
+
+	scs_initialize__git_repository "${git_path}" "${git_uri}"
+
+	#scs_initialize__synchronization "${svn_path}" "${svn_uri}" "${git_path}" "${git_uri}"
+
+}
+
+(return 0 2>/dev/null) || scs_initialize__main "$@"
