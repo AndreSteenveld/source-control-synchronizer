@@ -33,6 +33,7 @@ scs_initialize__generate_authors_from_svn() {
 	while [[ "$#" != 0 ]]; do
 
 		sed_expressions+=('-e' "$0")
+		shift
 
 	done
 
@@ -61,14 +62,15 @@ scs_initialize__generate_authors_from_git() {
 
 scs_initialize__git_repository() {
 
-	local git_path="$1"
-	local git_uri="$2"
+	local git_username="$1"
+	local git_password="$2"
+	local git_uri="$3"
+	local git_path="$4"
 
-	if [[ ! -d "${git_path}" ]] ; then
+	git -C "${git_path}" remote replace origin "${git_uri}"
 
-		git clone --bare "${git_uri}" "${git_path}"
-		
-	fi
+	if [[ -Z "${git_username}" ]] ; then git -C "${git_path}" config "credential.${git_uri}.username" "${git_username}" ; fi
+	if [[ -Z "${git_password}" ]] ; then git -C "${git_path}" config "credential.${git_uri}.helper" "! echo 'password=${git_password}'" ; fi
 
 	git -C "${git_path}" pull origin
 
@@ -76,13 +78,17 @@ scs_initialize__git_repository() {
 
 scs_initialize__svn_to_git() {
 
-	git init --bare "${git_path}"                          \
-		&& git svn init "file://${svn_path}" "${git_path}" \
-			--stdlayout                                    \
-			--use-svnsync-props                            \
-			--authors-file="${SCS_AUTHORS}"                \
-			--prefix "svn"                                 \
-		&& git svn fetch
+	local svn_path="$1"
+	local git_path="$2"
+	local authors="$3"
+
+	git init --bare "${git_path}"
+		&& git -C "${git_path}" svn init "file://${svn_path}" \
+			--stdlayout                                       \
+			--use-svnsync-props                               \
+			--authors-file="${authors}"                       \
+			--prefix "svn"                                    \
+		&& git -C "${git_path}" svn fetch
 
 }
 
@@ -96,7 +102,7 @@ scs_initialize__git_to_svn() {
 
 }
 
-scs_initialize__start_webhooks() {
+scs_initialize__start_webhooks() { 	
 
 	exit 1
 
@@ -109,17 +115,23 @@ scs_initialize__help() {
 		'                 the goal of synchronizing a SVN and GIT repository             ' \
 		'                                                                                ' \
 		'Usage:                                                                          ' \
-		'  scs-initialize [direction] [options]                                          ' \
+		'  scs-initialize [options]                                                      ' \
+		'  scs-initialize [direction] [options] [author expressions]                     ' \
 		'                                                                                ' \
 		'Direction: <svn-to-git|git-to-svn>                                              ' \
 		'  Definese the direction of the synchronization after initalization, if no      ' \
 		'  direction is provided it is assumed that the repositories are in sync and no  ' \
 		'  action is neccesary after initalization.                                      ' \
 		'                                                                                ' \
+		'Author expressions: <sed expression>...                                         ' \
+		'  Depending on the initlaization direction we want to generate an authors file  ' \
+		'  on using the provided username/email combination. These sed expressions allow ' \
+		'  you to maniulate the output here. The result should be an authors file        ' \
+		'                                                                                ' \
 		'Options:                                                                        ' \
-		'  --svn-repository <uri>                                                        ' \
-		'  --git-repository <uri>                                                        ' \
-		'                                                                                ' 
+		'  --svn <username> <password> <uri>                                             ' \
+		'  --git <username> <password> <uri>                                             ' \
+		'                                                                                '
 
 }
 
@@ -129,10 +141,20 @@ scs_initialize__main() {
 	set -o pipefail
 	set -o errtrace
 
-	local svn_path='/var/svn'
-	local git_path='/var/git'
+	local svn_path="${SCS_SVN_PATH:=/var/svn}"
+	local git_path="${SCS_GIT_PATH:=/var/git}"
 
-	local svn_uri git_uri initalization_direction
+	local svn_username="${SCS_SVN_USERNAME}"
+	local svn_password="${SCS_SVN_PASSWORD}" 
+	local svn_uri="${SCS_SVN_URI}"
+
+	local git_username="${SCS_GIT_USERNAME}"
+	local git_password="${SCS_GIT_PASSWORD}"
+	local git_uri="${SCS_GIT_URI}"
+	
+	local initalization_direction
+	
+	
 	case "$1" in
 		"git-to-svn") initalization_direction="$1" ; shift 1 ;;
 		"svn-to-git") initalization_direction="$1" ; shift 1 ;;
@@ -141,8 +163,8 @@ scs_initialize__main() {
 	while [[ $# != 0 ]]; do
 
 		case "$1" in
-			--svn-repository) svn_uri="$2" ; shift 2 ;;
-			--git-repository) git_uri="$2" ; shift 2 ;;
+			--svn) svn_username="$2" ; svn_password="$3" ; svn_uri="$4" ; shift 4 ;;
+			--git) git_username="$2" ; git_passowrd="$3" ; git_uri="$4" ; shift 4 ;;
 			"-?" | --help) scs_initialize__help ; exit ;;
 			*) {
 				printf "[ initialize ] Unknown option [ %s ]" "$1" >&2
@@ -156,32 +178,39 @@ scs_initialize__main() {
 	elif [[ -z "${git_uri}" ]] ; then printf "[ initialize ] No remote GIT uri was provided." >&2 ; exit 1
 	fi
 
-	export SCS_AUTHORS="/var/AUTHORS"
+	export SVS_SVN_PATH="${svn_path}"
+	export SCS_GIT_PATH="${git_path}"
+	
+	export SCS_AUTHORS="${SCS_AUTHORS:=/var/AUTHORS}"
+
+	export SCS_SVN_USERNAME="${svn_username}"
+	export SCS_SVN_PASSWORD="${svn_password}"
 	export SCS_SVN_URI="${svn_uri}"
+	
+	export SCS_GIT_USERNAME="${git_username}"
+	export SCS_GIT_PASSWORD="${git_password}"
 	export SCS_GIT_URI="${git_uri}"
 
-	scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
-
-	if   [[ "${initalization_direction}" = "svn-to-git" ]] ; then 
+	if [[ "${initalization_direction}" = "svn-to-git" ]] ; then 
 		
-		scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
+		scs_initialize__svn_repository "${svn_username}" "${svn_password}" "${svn_uri}" "${svn_path}"
 		scs_initialize__generate_authors_from_svn "${svn_path}" "${SCS_AUTHORS}"
-		scs_initialize__svn_to_git 
+		scs_initialize__svn_to_git "${svn_path}" "${git_path}"
 		
 		exit
 
 	elif [[ "${initalization_direction}" = "git-to-svn" ]] ; then 
 
-		scs_initialize__git_repository "${git_path}" "${git_uri}"
-		scs_initialize__generate_authors_from_git
-		scs_initialize__git_to_svn
+		scs_initialize__git_repository "${git_username}" "${git_password}" "${git_uri}" "${git_path}"
+		scs_initialize__generate_authors_from_git "${git_path}" "${SCS_AUTHORS}"
+		scs_initialize__git_to_svn "${git_path}" "${svn_path}"
 
 		exit
 
 	elif [[ -z "${initalization_direction}" ]] ; then
 	
-		scs_initialize__svn_repository "${svn_path}" "${svn_uri}"
-		scs_initialize__git_repository "${git_path}" "${git_uri}"
+		scs_initialize__svn_repository "${svn_username}" "${svn_password}" "${svn_uri}" "${svn_path}"
+		scs_initialize__git_repository "${git_username}" "${git_password}" "${git_uri}" "${git_path}"
 		scs_initialize__start_webhooks
 
 		exit
