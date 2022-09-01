@@ -20,11 +20,7 @@ scs_initialize__svn_repository() {
 
 		svnsync initialize "file://${svn_path}" "${svn_uri}"  \
 			--non-interactive                                 \
-			--source-trust-server-cert-failures unknown-ca    \
-			--source-trust-server-cert-failures cn-mismatch   \
-			--source-trust-server-cert-failures expired       \
-			--source-trust-server-cert-failures not-yet-valid \
-			--source-trust-server-cert-failures other         \
+			--source-trust-server-cert-failures unknown-ca,cn-mismatch,expired,not-yet-valid,other \
 			--source-username "${svn_username}"               \
 			--source-password "${svn_password}"               \
 			--allow-non-empty
@@ -33,11 +29,7 @@ scs_initialize__svn_repository() {
 
 	svnsync synchronise "file://${svn_path}" "${svn_uri}" \
 		--non-interactive                                 \
-		--source-trust-server-cert-failures unknown-ca    \
-		--source-trust-server-cert-failures cn-mismatch   \
-		--source-trust-server-cert-failures expired       \
-		--source-trust-server-cert-failures not-yet-valid \
-		--source-trust-server-cert-failures other         \
+		--source-trust-server-cert-failures unknown-ca,cn-mismatch,expired,not-yet-valid,other \
 		--source-username "${svn_username}"               \
 		--source-password "${svn_password}"
 
