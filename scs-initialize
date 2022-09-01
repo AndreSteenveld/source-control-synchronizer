@@ -2,24 +2,44 @@
 
 scs_initialize__svn_repository() {
 
-	local svn_path="$1"
-	local svn_uri="$2"
+	local svn_username="$1"
+	local svn_password="$2"
+	local svn_uri="$3"
+	local svn_path="$4"
 
-	# 
-	# Initialize SVN repo if it doesn't exist
-	#
-	if [[ ! -d "${svn_path}" ]] ; then
+	if ! svnlook info "${svn_path}" 2> /dev/null > /dev/null ; then
 	
-		svnadmin create "file://${svn_path}" \
-			&& svnrdump dump "${svn_uri}" | svnadmin load "file://${svn_path}"
+		svnadmin create "${svn_path}"
 
 	fi
 
-	#
-	# Synchronize SVN repo with remote
-	#
-	svnsync initialize "file://${svn_path}" "${svn_path}" --allow-non-empty \
-		&& svnsync synchronize "file://${svn_path}" "${svn_uri}"
+	if ! svnsync info "file://${svn_path}" 2> /dev/null > /dev/null ; then
+
+		envsubst '$SCS_SVN_USERNAME' < /opt/pre-revprop-change.template > "${svn_path}/hooks/pre-revprop-change" \
+			&& chmod +x "${svn_path}/hooks/pre-revprop-change"
+
+		svnsync initialize "file://${svn_path}" "${svn_uri}"  \
+			--non-interactive                                 \
+			--source-trust-server-cert-failures unknown-ca    \
+			--source-trust-server-cert-failures cn-mismatch   \
+			--source-trust-server-cert-failures expired       \
+			--source-trust-server-cert-failures not-yet-valid \
+			--source-trust-server-cert-failures other         \
+			--source-username "${svn_username}"               \
+			--source-password "${svn_password}"               \
+			--allow-non-empty
+
+	fi
+
+	svnsync synchronise "file://${svn_path}" "${svn_uri}" \
+		--non-interactive                                 \
+		--source-trust-server-cert-failures unknown-ca    \
+		--source-trust-server-cert-failures cn-mismatch   \
+		--source-trust-server-cert-failures expired       \
+		--source-trust-server-cert-failures not-yet-valid \
+		--source-trust-server-cert-failures other         \
+		--source-username "${svn_username}"               \
+		--source-password "${svn_password}"
 
 }
 
@@ -67,12 +87,18 @@ scs_initialize__git_repository() {
 	local git_uri="$3"
 	local git_path="$4"
 
-	git -C "${git_path}" remote replace origin "${git_uri}"
+	git init --bare "${git_path}"
 
-	if [[ -Z "${git_username}" ]] ; then git -C "${git_path}" config "credential.${git_uri}.username" "${git_username}" ; fi
-	if [[ -Z "${git_password}" ]] ; then git -C "${git_path}" config "credential.${git_uri}.helper" "! echo 'password=${git_password}'" ; fi
+	if [[ -n "${git_uri}" ]] ; then 
+	
+		git -C "${git_path}" remote replace origin "${git_uri}"
 
-	git -C "${git_path}" pull origin
+		if [[ -z "${git_username}" ]] ; then git -C "${git_path}" config "credential.${git_uri}.username" "${git_username}" ; fi
+		if [[ -z "${git_password}" ]] ; then git -C "${git_path}" config "credential.${git_uri}.helper" "! echo 'password=${git_password}'" ; fi
+
+		git -C "${git_path}" pull origin
+	
+	fi
 
 }
 
@@ -82,7 +108,7 @@ scs_initialize__svn_to_git() {
 	local git_path="$2"
 	local authors="$3"
 
-	git init --bare "${git_path}"
+	git init --bare "${git_path}"                             \
 		&& git -C "${git_path}" svn init "file://${svn_path}" \
 			--stdlayout                                       \
 			--use-svnsync-props                               \
@@ -116,7 +142,7 @@ scs_initialize__help() {
 		'                                                                                ' \
 		'Usage:                                                                          ' \
 		'  scs-initialize [options]                                                      ' \
-		'  scs-initialize [direction] [options] [author expressions]                     ' \
+		'  scs-initialize [direction] [options] -- [author expressions]                  ' \
 		'                                                                                ' \
 		'Direction: <svn-to-git|git-to-svn>                                              ' \
 		'  Definese the direction of the synchronization after initalization, if no      ' \
@@ -164,7 +190,7 @@ scs_initialize__main() {
 
 		case "$1" in
 			--svn) svn_username="$2" ; svn_password="$3" ; svn_uri="$4" ; shift 4 ;;
-			--git) git_username="$2" ; git_passowrd="$3" ; git_uri="$4" ; shift 4 ;;
+			--git) git_username="$2" ; git_password="$3" ; git_uri="$4" ; shift 4 ;;
 			"-?" | --help) scs_initialize__help ; exit ;;
 			*) {
 				printf "[ initialize ] Unknown option [ %s ]" "$1" >&2
@@ -174,11 +200,7 @@ scs_initialize__main() {
 
 	done
 
-	if   [[ -z "${svn_uri}" ]] ; then printf "[ initialize ] No remote SVN uri was provided." >&2 ; exit 1
-	elif [[ -z "${git_uri}" ]] ; then printf "[ initialize ] No remote GIT uri was provided." >&2 ; exit 1
-	fi
-
-	export SVS_SVN_PATH="${svn_path}"
+	export SCS_SVN_PATH="${svn_path}"
 	export SCS_GIT_PATH="${git_path}"
 	
 	export SCS_AUTHORS="${SCS_AUTHORS:=/var/AUTHORS}"
@@ -194,7 +216,7 @@ scs_initialize__main() {
 	if [[ "${initalization_direction}" = "svn-to-git" ]] ; then 
 		
 		scs_initialize__svn_repository "${svn_username}" "${svn_password}" "${svn_uri}" "${svn_path}"
-		scs_initialize__generate_authors_from_svn "${svn_path}" "${SCS_AUTHORS}"
+		scs_initialize__generate_authors_from_svn "${svn_path}" "${SCS_AUTHORS}" 
 		scs_initialize__svn_to_git "${svn_path}" "${git_path}"
 		
 		exit

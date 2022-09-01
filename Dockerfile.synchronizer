@@ -1,8 +1,9 @@
 FROM bash:latest
 
 COPY ./git-to-svn ./svn-to-git ./scs-initialize /usr/local/bin/
+COPY ./pre-revprop-change.template /opt
 COPY ./hooks.yaml /etc/webhook
 
-RUN apk add --no-cache tini webhook subversion git git-svn
+RUN apk add --no-cache gettext tini webhook subversion git git-svn
 
-ENTRYPOINT [ "/tini", "--", "bash", "-c", "'/usr/local/bin/scs-initialize \"$@\" && /sbin/webhook -verbose -hooks /var/hooks.yaml'" "bash" ]
+ENTRYPOINT [ "/usr/local/bin/scs-initialize" ]
