@@ -57,7 +57,7 @@ scs_initialize__generate_authors_from_svn() {
 	svn log --quiet --incremental "file://${svn_path}" \
 		| awk -F"|" '{ print $2 }'                     \
 		| sort | uniq                                  \
-		| sed -E "${sed_expressions[@]}"               \
+		| sed -E -e 's/^[ \t]+//;s/[ \t]+$//' "${sed_expressions[@]}" \
 		| uniq                                         \
 		> "${authors_file}"
 
@@ -227,7 +227,7 @@ scs_initialize__main() {
 		
 		scs_initialize__svn_repository "${svn_username}" "${svn_password}" "${svn_uri}" "${svn_path}"
 		scs_initialize__generate_authors_from_svn "${svn_path}" "${SCS_AUTHORS}" "${sed_expressions[@]}"
-		scs_initialize__svn_to_git "${svn_path}" "${git_path}"
+		scs_initialize__svn_to_git "${svn_path}" "${git_path}" "${SCS_AUTHORS}"
 		
 		exit
 
@@ -235,7 +235,7 @@ scs_initialize__main() {
 
 		scs_initialize__git_repository "${git_username}" "${git_password}" "${git_uri}" "${git_path}"
 		scs_initialize__generate_authors_from_git "${git_path}" "${SCS_AUTHORS}"
-		scs_initialize__git_to_svn "${git_path}" "${svn_path}"
+		scs_initialize__git_to_svn "${git_path}" "${svn_path}" "${SCS_AUTHORS}"
 
 		exit
 
