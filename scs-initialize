@@ -12,22 +12,18 @@ scs_initialize__svn_repository() {
 		svnadmin create "${svn_path}"
 
 	fi
+	
+	envsubst '$SCS_SVN_USERNAME' < /opt/pre-revprop-change.template > "${svn_path}/hooks/pre-revprop-change" \
+		&& chmod +x "${svn_path}/hooks/pre-revprop-change"
 
-	if ! svnsync info "file://${svn_path}" 2> /dev/null > /dev/null ; then
+	svnsync initialize "file://${svn_path}" "${svn_uri}"  \
+		--non-interactive                                 \
+		--source-trust-server-cert-failures unknown-ca,cn-mismatch,expired,not-yet-valid,other \
+		--source-username "${svn_username}"               \
+		--source-password "${svn_password}"               \
+		--allow-non-empty
 
-		envsubst '$SCS_SVN_USERNAME' < /opt/pre-revprop-change.template > "${svn_path}/hooks/pre-revprop-change" \
-			&& chmod +x "${svn_path}/hooks/pre-revprop-change"
-
-		svnsync initialize "file://${svn_path}" "${svn_uri}"  \
-			--non-interactive                                 \
-			--source-trust-server-cert-failures unknown-ca,cn-mismatch,expired,not-yet-valid,other \
-			--source-username "${svn_username}"               \
-			--source-password "${svn_password}"               \
-			--allow-non-empty
-
-	fi
-
-	svnsync synchronise "file://${svn_path}" "${svn_uri}" \
+	svnsync synchronize "file://${svn_path}" "${svn_uri}" \
 		--non-interactive                                 \
 		--source-trust-server-cert-failures unknown-ca,cn-mismatch,expired,not-yet-valid,other \
 		--source-username "${svn_username}"               \
@@ -38,16 +34,18 @@ scs_initialize__svn_repository() {
 scs_initialize__generate_authors_from_svn() {
 
 	local svn_path="$1" ; shift 1
-	local authors_file="$2" ; shift 1
+	local authors_file="$1" ; shift 1
 
 	local sed_expressions=()
 
 	while [[ "$#" != 0 ]]; do
 
-		sed_expressions+=('-e' "$0")
+		sed_expressions+=('-e' "$1")
 		shift
 
 	done
+
+	touch "${authors_file}"
 
 	#
 	# Because this is running in a alpine container we're need to take in account that, to save them precious bytes, we only
@@ -59,7 +57,6 @@ scs_initialize__generate_authors_from_svn() {
 	svn log --quiet --incremental "file://${svn_path}" \
 		| awk -F"|" '{ print $2 }'                     \
 		| sort | uniq                                  \
-		| sed -E -e 's/(no author)/no-author/'         \
 		| sed -E "${sed_expressions[@]}"               \
 		| uniq                                         \
 		> "${authors_file}"
@@ -144,11 +141,24 @@ scs_initialize__help() {
 		'Author expressions: <sed expression>...                                         ' \
 		'  Depending on the initlaization direction we want to generate an authors file  ' \
 		'  on using the provided username/email combination. These sed expressions allow ' \
-		'  you to maniulate the output here. The result should be an authors file        ' \
+		'  you to maniulate the output here. The result should be an authors file.       ' \
+		'                                                                                ' \
+		'  Because SVN sometimes doesn\x27t know who authored a particular commit there  ' \
+		'  is a "(no author)" author. To make converting the author names to a valid     ' \
+		'  email make sure to take "(no author)"-author in account.                      ' \
 		'                                                                                ' \
 		'Options:                                                                        ' \
 		'  --svn <username> <password> <uri>                                             ' \
 		'  --git <username> <password> <uri>                                             ' \
+		'                                                                                ' \
+		'Examples:                                                                       ' \
+		'  scs-initialize svn-to-git                                     \\              ' \
+		'      --svn svnsync \x2770p__s3cret\x27 \x27http://svn-repository.local\x27 \\  ' \
+		'      --git gitsync \x27cl4551f13d\x27 \x27http://git-repository.local\x27  \\  ' \
+		'      -- \x27s/\\(no author\\)/no-author/\x27 \x27s/ $/@email.local\x27         ' \
+		'                                                                                ' \
+		'  Initialize a the local working repositories and provide the sed expressions   ' \
+		'  generate the authors.                                                         ' \
 		'                                                                                '
 
 }
@@ -171,6 +181,7 @@ scs_initialize__main() {
 	local git_uri="${SCS_GIT_URI}"
 	
 	local initalization_direction
+	local sed_expressions=()
 	
 	
 	case "$1" in
@@ -183,7 +194,14 @@ scs_initialize__main() {
 		case "$1" in
 			--svn) svn_username="$2" ; svn_password="$3" ; svn_uri="$4" ; shift 4 ;;
 			--git) git_username="$2" ; git_password="$3" ; git_uri="$4" ; shift 4 ;;
+
+			--) {
+				shift ; sed_expressions=("$@")
+				break 2
+			} ;;
+
 			"-?" | --help) scs_initialize__help ; exit ;;
+
 			*) {
 				printf "[ initialize ] Unknown option [ %s ]" "$1" >&2
 				exit 1
@@ -208,7 +226,7 @@ scs_initialize__main() {
 	if [[ "${initalization_direction}" = "svn-to-git" ]] ; then 
 		
 		scs_initialize__svn_repository "${svn_username}" "${svn_password}" "${svn_uri}" "${svn_path}"
-		scs_initialize__generate_authors_from_svn "${svn_path}" "${SCS_AUTHORS}" 
+		scs_initialize__generate_authors_from_svn "${svn_path}" "${SCS_AUTHORS}" "${sed_expressions[@]}"
 		scs_initialize__svn_to_git "${svn_path}" "${git_path}"
 		
 		exit
