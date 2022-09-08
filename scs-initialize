@@ -54,11 +54,13 @@ scs_initialize__generate_authors_from_svn() {
 	# awk (-F|--field-separator)
 	# sed (-r|--regex-extended) (-e|--expression)
 	#
-	svn log --quiet --incremental "file://${svn_path}" \
-		| awk -F"|" '{ print $2 }'                     \
-		| sort | uniq                                  \
+	# The first sed expression is to trim the user name from leading and trailing whitespace.
+	#
+	svn log --quiet --incremental "file://${svn_path}"                \
+		| awk -F"|" '{ print $2 }'                                    \
+		| sort | uniq                                                 \
 		| sed -E -e 's/^[ \t]+//;s/[ \t]+$//' "${sed_expressions[@]}" \
-		| uniq                                         \
+		| uniq                                                        \
 		> "${authors_file}"
 
 }
@@ -97,13 +99,28 @@ scs_initialize__svn_to_git() {
 	local git_path="$2"
 	local authors="$3"
 
-	git init --bare "${git_path}"                             \
-		&& git -C "${git_path}" svn init "file://${svn_path}" \
-			--stdlayout                                       \
-			--use-svnsync-props                               \
-			--authors-file="${authors}"                       \
-			--prefix "svn"                                    \
-		&& git -C "${git_path}" svn fetch
+	#
+	# So initially I thought that creating a bare repo and then running `git svn init` in it would give me the best
+	# of both worlds. Having a bare repo because I don't really care about the working copy and as a consequence
+	# don't have to read/write as much to the disk. Turns out that `git svn init` will ALWAYS intialize a git repo
+	# even if one doesn't exist.
+	#
+	# This makes this inital init completly pointless. For now I'm just going to keep at this as I just want something
+	# to synchronize between a git and svn repo and if this is the sacrafice I have to make in the name of progress,
+	# so be it.
+	#
+	# git init --bare "${git_path}"
+	#
+
+	git -C "${git_path}" svn init "file://${svn_path}" \
+		--stdlayout                                    \
+		--use-svnsync-props                            \
+		--prefix "svn/"
+
+	git -C "${git_path}" svn fetch  \
+		--quiet                     \
+		--follow-parent             \
+		--authors-file="${authors}"
 
 }
 
